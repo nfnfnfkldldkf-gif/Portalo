@@ -1,0 +1,200 @@
+-- Portal Gun C-137 | Delta Mobile
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local camera = workspace.CurrentCamera
+
+local SETTINGS = {
+    Color = Color3.fromRGB(0, 255, 70),
+    Size = 7,
+    Max = 2,
+    Cooldown = 1.4
+}
+
+local function sound(id, vol)
+    local s = Instance.new("Sound")
+    s.SoundId = "rbxassetid://" .. id
+    s.Volume = vol or 0.7
+    s.Parent = SoundService
+    return s
+end
+
+local openS  = sound(9120392871, 0.6)
+local closeS = sound(9120392872, 0.5)
+local shootS = sound(12222200, 0.75)
+local tpS    = sound(9120392873, 0.9)
+
+local Portal = {}
+Portal.__index = Portal
+
+function Portal.new(pos, normal)
+    local self = setmetatable({}, Portal)
+    local model = Instance.new("Model")
+    model.Name = "Portal"
+
+    local disc = Instance.new("Part")
+    disc.Size = Vector3.new(SETTINGS.Size, SETTINGS.Size, 0.2)
+    disc.Anchored = true
+    disc.CanCollide = false
+    disc.Material = Enum.Material.Neon
+    disc.Color = SETTINGS.Color
+    disc.Transparency = 0.25
+    disc.CFrame = CFrame.lookAt(pos, pos + normal)
+    disc.Parent = model
+
+    local ring = Instance.new("Part")
+    ring.Size = Vector3.new(SETTINGS.Size + 1.3, SETTINGS.Size + 1.3, 0.1)
+    ring.Anchored = true
+    ring.CanCollide = false
+    ring.Material = Enum.Material.Neon
+    ring.Color = SETTINGS.Color
+    ring.Transparency = 0.5
+    ring.CFrame = disc.CFrame
+    ring.Parent = model
+
+    local light = Instance.new("PointLight")
+    light.Color = SETTINGS.Color
+    light.Range = 16
+    light.Brightness = 2
+    light.Parent = disc
+
+    local box = Instance.new("Part")
+    box.Size = Vector3.new(SETTINGS.Size * 0.85, SETTINGS.Size * 0.85, 2.5)
+    box.Anchored = true
+    box.CanCollide = false
+    box.Transparency = 1
+    box.CFrame = disc.CFrame
+    box.Parent = model
+
+    self.Model = model
+    self.Disc = disc
+    self.Ring = ring
+    self.Box = box
+    self.Pos = pos
+    self.Normal = normal
+    self.Connected = nil
+    self.Last = 0
+
+    disc.Size = Vector3.new(0.1, 0.1, 0.1)
+    ring.Size = Vector3.new(0.1, 0.1, 0.1)
+    TweenService:Create(disc, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = Vector3.new(SETTINGS.Size, SETTINGS.Size, 0.2)}):Play()
+    TweenService:Create(ring, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = Vector3.new(SETTINGS.Size + 1.3, SETTINGS.Size + 1.3, 0.1)}):Play()
+
+    openS:Play()
+    model.Parent = workspace
+    return self
+end
+
+function Portal:Connect(other)
+    self.Connected = other
+    other.Connected = self
+end
+
+function Portal:TP(char)
+    if not self.Connected or tick() - self.Last < SETTINGS.Cooldown then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if (hrp.Position - self.Box.Position).Magnitude > SETTINGS.Size / 1.7 then return end
+
+    tpS:Play()
+    hrp.CFrame = CFrame.new(self.Connected.Pos + self.Connected.Normal * 3)
+    self.Last = tick()
+    self.Connected.Last = tick()
+end
+
+function Portal:Destroy()
+    closeS:Play()
+    TweenService:Create(self.Disc, TweenInfo.new(0.2), {Size = Vector3.new(0.1, 0.1, 0.1)}):Play()
+    TweenService:Create(self.Ring, TweenInfo.new(0.2), {Size = Vector3.new(0.1, 0.1, 0.1)}):Play()
+    task.wait(0.22)
+    if self.Model then self.Model:Destroy() end
+end
+
+local Manager = {List = {}}
+
+function Manager:Add(pos, normal)
+    while #self.List >= SETTINGS.Max do
+        table.remove(self.List, 1):Destroy()
+    end
+    local p = Portal.new(pos, normal)
+    table.insert(self.List, p)
+    if #self.List == 2 then
+        self.List[1]:Connect(self.List[2])
+    end
+end
+
+function Manager:Clear()
+    for _, p in ipairs(self.List) do p:Destroy() end
+    self.List = {}
+end
+
+function Manager:Update()
+    for _, p in ipairs(self.List) do
+        if p.Connected then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character then p:TP(plr.Character) end
+            end
+        end
+    end
+end
+
+local function shoot()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local origin = character.HumanoidRootPart.Position
+    local dir = camera.CFrame.LookVector * 130
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {character}
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local hit = workspace:Raycast(origin, dir, params)
+    if hit then
+        shootS:Play()
+        Manager:Add(hit.Position + hit.Normal * 0.3, hit.Normal)
+    end
+end
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "PortalGUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local shootBtn = Instance.new("TextButton")
+shootBtn.Size = UDim2.new(0, 85, 0, 85)
+shootBtn.Position = UDim2.new(1, -110, 1, -155)
+shootBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 60)
+shootBtn.Text = "PORTAL"
+shootBtn.TextColor3 = Color3.new(1, 1, 1)
+shootBtn.Font = Enum.Font.GothamBold
+shootBtn.TextSize = 15
+shootBtn.Parent = gui
+Instance.new("UICorner", shootBtn).CornerRadius = UDim.new(1, 0)
+
+local clearBtn = Instance.new("TextButton")
+clearBtn.Size = UDim2.new(0, 65, 0, 65)
+clearBtn.Position = UDim2.new(1, -100, 1, -240)
+clearBtn.BackgroundColor3 = Color3.fromRGB(200, 45, 45)
+clearBtn.Text = "CLEAR"
+clearBtn.TextColor3 = Color3.new(1, 1, 1)
+clearBtn.Font = Enum.Font.GothamBold
+clearBtn.TextSize = 13
+clearBtn.Parent = gui
+Instance.new("UICorner", clearBtn).CornerRadius = UDim.new(1, 0)
+
+shootBtn.MouseButton1Click:Connect(shoot)
+clearBtn.MouseButton1Click:Connect(function() Manager:Clear() end)
+
+player.CharacterAdded:Connect(function(c)
+    character = c
+end)
+
+RunService.Heartbeat:Connect(function()
+    Manager:Update()
+end)
+
+print("Portal Gun loaded")
